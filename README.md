@@ -2,17 +2,17 @@
 
 A comprehensive Python framework for solving Ordinary Differential Equations (ODEs) with automatic system identification using machine learning. This is Week 1 of the adaptive ODE solver framework development.
 
-## 🎯 What is This Project?
+## What is This Project?
 
 This project solves a fundamental problem in science and engineering: **How do we solve equations that describe how things change over time?**
 
 ### The Problem We're Solving
 
 In physics, biology, engineering, and many other fields, we often have systems that change with time. For example:
-- 🔴 How a radioactive substance decays
-- 🌊 How a pendulum swings
-- 🦠 How a population grows
-- 🌡️ How heat spreads through an object
+- How a radioactive substance decays
+- How a pendulum swings
+- How a population grows
+- How heat spreads through an object
 
 These systems are described by **Differential Equations** - mathematical statements that say "the rate of change of X is proportional to Y."
 
@@ -31,39 +31,39 @@ Instead of solving the equation by hand, we:
 3. **Use that learned equation** to make predictions
 4. **Solve the learned equation** numerically using advanced integration methods
 
-## 🚀 Key Features
+## Key Features
 
-### 1. **Two Powerful Solvers**
+### 1. Two Powerful Solvers
 - **RK4Solver**: Fixed-step Runge-Kutta (reliable and simple)
 - **RK45Solver**: Adaptive Runge-Kutta (smart step sizing for accuracy)
 
-### 2. **Automatic System Identification**
+### 2. Automatic System Identification
 Uses **SINDy** (Sparse Identification of Nonlinear Dynamics) to learn equations from data automatically.
 
-### 3. **Comprehensive Error Metrics**
+### 3. Comprehensive Error Metrics
 Evaluate solution quality with:
 - L2 Norm (distance between solutions)
 - MSE (mean squared error)
 - RMSE (root mean squared error)
-- R² (coefficient of determination)
+- R-squared (coefficient of determination)
 
-### 4. **Test Suite**
+### 4. Test Suite
 89 comprehensive tests validating:
-- ✅ Exponential decay (radioactive decay)
-- ✅ Harmonic oscillator (pendulum-like systems)
-- ✅ Logistic growth (population dynamics)
-- ✅ Multi-dimensional systems
-- ✅ Edge cases and numerical stability
+- Exponential decay (radioactive decay)
+- Harmonic oscillator (pendulum-like systems)
+- Logistic growth (population dynamics)
+- Multi-dimensional systems
+- Edge cases and numerical stability
 
-### 5. **High Code Quality**
-- 📊 **90% code coverage** - thoroughly tested
-- 📚 **Complete documentation** - every function explained
-- 🎯 **Type hints** - catches errors early
-- ✨ **Production-ready code** - ready for real-world use
+### 5. High Code Quality
+- 90% code coverage - thoroughly tested
+- Complete documentation - every function explained
+- Type hints - catches errors early
+- Production-ready code - ready for real-world use
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Step 1: Clone the Repository
 ```bash
@@ -91,7 +91,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🎓 How to Use
+## How to Use
 
 ### Example 1: Simple System (Exponential Decay)
 
@@ -159,7 +159,7 @@ python examples/week1_demo.py
 
 ---
 
-## 📖 Understanding the Code Structure
+## Code Structure
 
 ```
 adaptive-ode-framework-mvp/
@@ -192,7 +192,7 @@ adaptive-ode-framework-mvp/
 
 ---
 
-## 🔬 How the Solvers Work
+## How the Solvers Work
 
 ### What is an ODE?
 
@@ -245,7 +245,7 @@ Once we have the equation, we solve it numerically using:
 
 ---
 
-## 📊 Key Concepts Explained Simply
+## Key Concepts Explained
 
 ### 1. **Fitting vs. Predicting**
 
@@ -279,25 +279,25 @@ What does it mean for a prediction to be "good"?
 
 **L2 Norm**: Total distance between predicted and actual values
 ```
-L2 = √(sum of squared differences)
+L2 = sqrt(sum of squared differences)
 ```
 
 **RMSE (Root Mean Squared Error)**: Average prediction error
 ```
-RMSE = √(mean of squared errors)
+RMSE = sqrt(mean of squared errors)
 ```
 - RMSE of 0.01 means: on average, predictions are off by 0.01
 
-**R² (Coefficient of Determination)**: How much variance is explained
+**R-squared (Coefficient of Determination)**: How much variance is explained
 ```
-R² = 1.0  → Perfect prediction
-R² = 0.5  → Predicts 50% of the variation
-R² < 0.0  → Worse than just guessing the mean
+R² = 1.0    → Perfect prediction
+R² = 0.5    → Predicts 50% of the variation
+R² < 0.0    → Worse than just guessing the mean
 ```
 
 ---
 
-## 🧪 Testing & Validation
+## Testing and Validation
 
 ### Running Tests
 
@@ -320,14 +320,14 @@ pytest ode_framework/tests/test_solvers.py::TestExponentialDecay -v
 
 | Module | Coverage | Tests | Status |
 |--------|----------|-------|--------|
-| `error_metrics.py` | 96% | 62 | ✅ All Pass |
-| `test_solvers.py` | 99% | 27 | ✅ All Pass |
-| `classical.py` | 72% | - | ✅ All Pass |
-| **Overall** | **90%** | **89** | ✅ **88 Pass** |
+| error_metrics.py | 96% | 62 | All Pass |
+| test_solvers.py | 99% | 27 | All Pass |
+| classical.py | 72% | - | All Pass |
+| **Overall** | **90%** | **89** | **88 Pass** |
 
 ---
 
-## 🎓 Educational Value
+## Educational Value
 
 This framework teaches:
 
@@ -352,29 +352,29 @@ This framework teaches:
 
 ---
 
-## 🔮 What Comes Next (Future Weeks)
+## Future Development
 
 ### Week 2: Advanced Features
-- [ ] Ensemble methods (combine multiple solvers)
-- [ ] Parameter uncertainty quantification
-- [ ] Sparse matrix optimization
-- [ ] GPU acceleration with JAX
+- Ensemble methods (combine multiple solvers)
+- Parameter uncertainty quantification
+- Sparse matrix optimization
+- GPU acceleration with JAX
 
 ### Week 3: Real-World Applications
-- [ ] Chemical kinetics systems
-- [ ] Neural network ODEs
-- [ ] Climate model components
-- [ ] Real data case studies
+- Chemical kinetics systems
+- Neural network ODEs
+- Climate model components
+- Real data case studies
 
 ### Week 4: Advanced Techniques
-- [ ] Physics-informed neural networks (PINNs)
-- [ ] Uncertainty propagation
-- [ ] Bifurcation analysis
-- [ ] Sensitivity analysis
+- Physics-informed neural networks (PINNs)
+- Uncertainty propagation
+- Bifurcation analysis
+- Sensitivity analysis
 
 ---
 
-## 📈 Performance Metrics
+## Performance Metrics
 
 ### Current Status
 - **Test Pass Rate**: 88/89 (98.9%)
@@ -382,45 +382,45 @@ This framework teaches:
 - **Lines of Code**: 781 (including tests)
 - **Documentation**: 100% of functions
 
-### Only Known Issue
+### Known Issues
 - `test_high_dimensional_system`: R² = -1.8 due to SINDy's sparsity parameter being too aggressive on 5D systems. Planned fix for Week 2.
 
 ---
 
-## 🛠️ Architecture Decision Records
+## Architecture Decisions
 
 ### Why Two Solvers?
 
 **RK4Solver** (Fixed Step)
-- ✅ Simple, predictable behavior
-- ✅ Easier to debug
-- ✅ Good for smooth problems
-- ❌ Wasteful on easy parts of solution
+- Simple, predictable behavior
+- Easier to debug
+- Good for smooth problems
+- Wasteful on easy parts of solution
 
 **RK45Solver** (Adaptive Step)
-- ✅ More efficient overall
-- ✅ Better accuracy with less computation
-- ✅ Handles stiff regions automatically
-- ❌ Slightly more complex
+- More efficient overall
+- Better accuracy with less computation
+- Handles stiff regions automatically
+- Slightly more complex
 
-**Result**: User gets to choose based on their problem!
+**Result**: User gets to choose based on their problem.
 
 ### Why SINDy?
 
 **Compared to Black-Box Neural Networks:**
-- ✅ Interpretable equations you can read
-- ✅ Sparse (simple equations)
-- ✅ Generalizes better to new data
-- ✅ Physics-informed
+- Interpretable equations you can read
+- Sparse (simple equations)
+- Generalizes better to new data
+- Physics-informed
 
 **Compared to Manual Equation Discovery:**
-- ✅ Fully automatic
-- ✅ Handles noisy data
-- ✅ Finds nonlinear relationships
+- Fully automatic
+- Handles noisy data
+- Finds nonlinear relationships
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### "ImportError: No module named 'pysindy'"
 **Solution:**
@@ -448,7 +448,7 @@ x_data = np.array([[1.0], [0.9], [0.81], [0.73]])
 
 ---
 
-## 📚 References & Further Reading
+## References and Further Reading
 
 ### Papers
 - SINDy: "Discovering governing equations from data by sparse identification of nonlinear dynamical systems" - Brunton et al. (2016)
@@ -486,13 +486,13 @@ This is an academic/research project. To contribute:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see `LICENSE` file for details.
 
 ---
 
-## 👤 Author
+## Author
 
 **Vaishnavi Raghupathi**
 - GitHub: [@Vaishnavi-Raghupathi](https://github.com/Vaishnavi-Raghupathi)
@@ -500,7 +500,7 @@ This project is licensed under the MIT License - see `LICENSE` file for details.
 
 ---
 
-## ❓ FAQ
+## Frequently Asked Questions
 
 **Q: Can I use this for production?**
 A: The code is well-tested (90% coverage, 88/89 tests pass) and follows best practices. However, Week 1 focuses on foundational features. Week 2 adds robustness features. Recommended for research/academic use now, production with caveats.
@@ -526,14 +526,14 @@ A: Current version assumes regularly sampled, complete data. Week 2 will add int
 
 ---
 
-## 🎉 Summary
+## Summary
 
 This framework makes it easy to:
-1. ✅ Learn differential equations from data automatically
-2. ✅ Solve those equations accurately and efficiently
-3. ✅ Evaluate prediction quality with standard metrics
-4. ✅ Understand exactly what's happening (no black boxes)
+1. Learn differential equations from data automatically
+2. Solve those equations accurately and efficiently
+3. Evaluate prediction quality with standard metrics
+4. Understand exactly what's happening (no black boxes)
 
-Perfect for science, engineering, and education!
+Perfect for science, engineering, and education.
 
-**Questions?** Check the tests in `ode_framework/tests/` for examples of all features in action.
+For questions, check the tests in `ode_framework/tests/` for examples of all features in action.
