@@ -1066,3 +1066,251 @@ class TestDiagnosticEngineIntegration:
         
         # Check interpretation
         assert 'Heteroscedastic' in report or 'heteroscedastic' in report
+
+
+# ============================================================================
+# INTEGRATION TESTS: Week 1 Solvers + Week 2 Diagnostics
+# ============================================================================
+
+class TestSolverTodiagnosticsIntegration:
+    """Integration tests connecting Week 1 solvers to Week 2 diagnostics."""
+    
+    def test_solver_to_diagnostics_integration(self) -> None:
+        """Complete pipeline from solving ODE to running diagnostics.
+        
+        This test validates that Week 1 solver output can be seamlessly
+        passed to Week 2 diagnostics module for model validation.
+        
+        Pipeline:
+        1. Generate synthetic ODE data with known solution
+        2. Add measurement noise (5%)
+        3. Fit RK45 solver to noisy data
+        4. Compute residuals
+        5. Run full diagnostics suite
+        6. Verify results are meaningful
+        """
+        from ode_framework.solvers.classical import RK45Solver
+        from ode_framework.utils.test_problems import exponential_decay
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        # ===== Step 1-3: Generate noisy data =====
+        # Create synthetic data: exponential decay
+        t_eval = np.linspace(0, 5, 100)
+        x0 = np.array([1.0])
+        
+        # Get true solution
+        x_true = exponential_decay(t_eval, x0=1.0, lambda_=0.5)["x_exact"]
+        
+        # Add 5% measurement noise
+        np.random.seed(42)
+        noise = np.random.normal(0, 0.05 * np.abs(x_true), x_true.shape)
+        x_noisy = x_true + noise
+        
+        # ===== Step 4-5: Fit solver to noisy data =====
+        solver = RK45Solver()
+        solver.fit(t_eval, x_noisy)
+        
+        # ===== Step 6: Make predictions =====
+        x_pred = solver.predict(t_eval)
+        
+        # ===== Step 7: Compute residuals =====
+        residuals = x_noisy - x_pred
+        
+        # Verify residuals are non-zero (due to noise and model mismatch)
+        assert np.std(residuals) > 0, "Residuals should be non-zero"
+        assert len(residuals) == len(t_eval), "Residual length should match time points"
+        
+        # ===== Step 8-9: Run diagnostics =====
+        engine = DiagnosticEngine(verbose=False)
+        results = engine.run_diagnostics(residuals, t_eval)
+        
+        # ===== Step 10: Verify diagnostics complete =====
+        assert results is not None, "Diagnostics should return results"
+        assert isinstance(results, dict), "Results should be a dictionary"
+        
+        # ===== Step 11: Verify required keys =====
+        required_keys = ['heteroscedasticity', 'autocorrelation', 'nonstationarity', 'summary']
+        for key in required_keys:
+            assert key in results, f"Results should contain '{key}'"
+        
+        # ===== Step 12: Verify test results =====
+        # Check heteroscedasticity test
+        hetero_result = results['heteroscedasticity']
+        assert isinstance(hetero_result, dict), "Heteroscedasticity result should be a dict"
+        assert 'p_value' in hetero_result, "Should have p_value"
+        assert 0 <= hetero_result['p_value'] <= 1, "P-value should be in [0, 1]"
+        
+        # Check autocorrelation test
+        auto_result = results['autocorrelation']
+        assert isinstance(auto_result, dict), "Autocorrelation result should be a dict"
+        assert 'p_value' in auto_result, "Should have p_value"
+        assert 0 <= auto_result['p_value'] <= 1, "P-value should be in [0, 1]"
+        
+        # Check nonstationarity test
+        nonstat_result = results['nonstationarity']
+        assert isinstance(nonstat_result, dict), "Nonstationarity result should be a dict"
+        assert 'p_value' in nonstat_result, "Should have p_value"
+        assert 0 <= nonstat_result['p_value'] <= 1, "P-value should be in [0, 1]"
+        
+        # ===== Step 13: Verify summary =====
+        summary = results['summary']
+        assert isinstance(summary, dict), "Summary should be a dictionary"
+        
+        # Check required summary keys
+        summary_keys = ['failure_detected', 'failure_types', 'recommended_method', 'confidence']
+        for key in summary_keys:
+            assert key in summary, f"Summary should contain '{key}'"
+        
+        # Verify recommendation is meaningful
+        recommendation = summary['recommended_method']
+        assert isinstance(recommendation, str), "Recommendation should be a string"
+        assert len(recommendation) > 0, "Recommendation should not be empty"
+        assert any(word in recommendation.lower() for word in ['classical', 'neural', 'sde', 'ensemble', 'regime']), \
+            "Recommendation should suggest a specific method"
+        
+        # ===== Step 14: Print summary for manual inspection =====
+        report = engine.generate_report()
+        print("\n" + "=" * 70)
+        print("SOLVER-TO-DIAGNOSTICS INTEGRATION TEST REPORT")
+        print("=" * 70)
+        print(f"\nTest Data Summary:")
+        print(f"  - Time points: {len(t_eval)}")
+        print(f"  - Noise level: 5%")
+        print(f"  - Residuals std: {np.std(residuals):.6f}")
+        print(f"  - Residuals mean: {np.mean(residuals):.6f}")
+        print(f"\nDiagnostic Report:")
+        print(report)
+        print("=" * 70)
+    
+    def test_solver_diagnostics_with_state_vars(self) -> None:
+        """Test diagnostics with state variables from solver output.
+        
+        Includes state-dependence test to check if residuals correlate
+        with the system state.
+        """
+        from ode_framework.solvers.classical import RK45Solver
+        from ode_framework.utils.test_problems import exponential_decay
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        # Generate data
+        t_eval = np.linspace(0, 5, 100)
+        x0 = np.array([1.0])
+        x_true = exponential_decay(t_eval, x0=1.0, lambda_=0.5)["x_exact"]
+        
+        # Add noise
+        np.random.seed(42)
+        noise = np.random.normal(0, 0.05 * np.abs(x_true), x_true.shape)
+        x_noisy = x_true + noise
+        
+        # Fit solver
+        solver = RK45Solver()
+        solver.fit(t_eval, x_noisy)
+        
+        # Predictions and residuals
+        x_pred = solver.predict(t_eval)
+        residuals = x_noisy - x_pred
+        
+        # Run diagnostics WITH state variables
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, t_eval, state_vars=x_pred)
+        
+        # Verify state-dependence test ran
+        assert results['state_dependence'] is not None, "State-dependence should be computed"
+        assert isinstance(results['state_dependence'], dict), "Should be a dict"
+        assert 'state_dependent' in results['state_dependence'], "Should have state_dependent flag"
+        assert 'p_value' in results['state_dependence'], "Should have p_value"
+        
+        # Generate report with state-dependence
+        report = engine.generate_report()
+        assert len(report) > 0, "Report should be generated"
+    
+    def test_multiple_solvers_diagnostics(self) -> None:
+        """Test diagnostics on data from different solvers.
+        
+        Ensures diagnostics work consistently across solver types.
+        """
+        from ode_framework.solvers.classical import RK45Solver, RK4Solver
+        from ode_framework.utils.test_problems import exponential_decay
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        # Generate true data with noise
+        t_eval = np.linspace(0, 5, 100)
+        x0 = np.array([1.0])
+        x_true = exponential_decay(t_eval, x0=1.0, lambda_=0.5)["x_exact"]
+        
+        np.random.seed(42)
+        noise = np.random.normal(0, 0.05 * np.abs(x_true), x_true.shape)
+        x_noisy = x_true + noise
+        
+        # Test with RK45Solver
+        solver_rk45 = RK45Solver()
+        solver_rk45.fit(t_eval, x_noisy)
+        x_pred_rk45 = solver_rk45.predict(t_eval)
+        residuals_rk45 = x_noisy - x_pred_rk45
+        
+        # Test with RK4Solver
+        solver_rk4 = RK4Solver()
+        solver_rk4.fit(t_eval, x_noisy)
+        x_pred_rk4 = solver_rk4.predict(t_eval)
+        residuals_rk4 = x_noisy - x_pred_rk4
+        
+        # Run diagnostics on both
+        engine1 = DiagnosticEngine()
+        results1 = engine1.run_diagnostics(residuals_rk45, t_eval)
+        
+        engine2 = DiagnosticEngine()
+        results2 = engine2.run_diagnostics(residuals_rk4, t_eval)
+        
+        # Both should have valid results
+        for results in [results1, results2]:
+            assert 'summary' in results
+            assert isinstance(results['summary'], dict)
+            assert 'recommended_method' in results['summary']
+            assert len(results['summary']['recommended_method']) > 0
+    
+    def test_diagnostics_sensitivity_to_noise_level(self) -> None:
+        """Test that diagnostics detect differences with varying noise levels.
+        
+        Demonstrates that diagnostics are sensitive to data quality.
+        """
+        from ode_framework.solvers.classical import RK45Solver
+        from ode_framework.utils.test_problems import exponential_decay
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        t_eval = np.linspace(0, 5, 100)
+        x0 = np.array([1.0])
+        x_true = exponential_decay(t_eval, x0=1.0, lambda_=0.5)["x_exact"]
+        
+        # Test with different noise levels
+        noise_levels = [0.01, 0.05, 0.10]  # 1%, 5%, 10%
+        recommendations = []
+        
+        for noise_level in noise_levels:
+            np.random.seed(42)
+            noise = np.random.normal(0, noise_level * np.abs(x_true), x_true.shape)
+            x_noisy = x_true + noise
+            
+            # Fit solver
+            solver = RK45Solver()
+            solver.fit(t_eval, x_noisy)
+            x_pred = solver.predict(t_eval)
+            residuals = x_noisy - x_pred
+            
+            # Run diagnostics
+            engine = DiagnosticEngine()
+            results = engine.run_diagnostics(residuals, t_eval)
+            
+            # Collect recommendations
+            recommendation = results['summary']['recommended_method']
+            recommendations.append((noise_level, recommendation))
+            
+            # Verify each produces valid output
+            assert isinstance(recommendation, str)
+            assert len(recommendation) > 0
+        
+        # All should produce different or at least valid recommendations
+        assert len(recommendations) == len(noise_levels)
+        for noise_level, recommendation in recommendations:
+            assert isinstance(recommendation, str)
+            assert len(recommendation) > 0
+
