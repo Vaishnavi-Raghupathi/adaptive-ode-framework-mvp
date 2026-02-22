@@ -41,11 +41,10 @@ from .diagnostic_engine import (
 )
 from .visualizations import (
     plot_diagnostics,
-    plot_residuals,
-    plot_convergence,
-    plot_phase_space,
-    plot_prediction_error,
-    plot_autocorrelation,
+    plot_residuals_timeseries,
+    plot_acf,
+    plot_qq,
+    plot_variance_trend,
 )
 
 __all__ = [
@@ -59,9 +58,8 @@ __all__ = [
     "DiagnosticReport",
     # Visualizations
     "plot_diagnostics",
-    "plot_residuals",
-    "plot_convergence",
-    "plot_phase_space",
-    "plot_prediction_error",
-    "plot_autocorrelation",
+    "plot_residuals_timeseries",
+    "plot_acf",
+    "plot_qq",
+    "plot_variance_trend",
 ]
