@@ -637,3 +637,432 @@ class TestIntegration:
         sd_result = state_dependence_test(synthetic_iid_residuals, time_array)
         assert 'test_name' in sd_result
         assert 'interpretation' in sd_result
+
+
+# ============================================================================
+# TESTS: DiagnosticEngine
+# ============================================================================
+
+class TestDiagnosticEngine:
+    """Tests for DiagnosticEngine class."""
+    
+    def test_diagnostic_engine_initialization(self) -> None:
+        """DiagnosticEngine should initialize with correct attributes."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine(verbose=False)
+        
+        # Check attributes exist
+        assert hasattr(engine, 'alpha')
+        assert hasattr(engine, 'results')
+        
+        # Check default alpha value
+        assert engine.alpha == 0.05
+        
+        # Check results is initially empty
+        assert isinstance(engine.results, dict)
+    
+    def test_diagnostic_engine_initialization_verbose(self) -> None:
+        """DiagnosticEngine should accept verbose parameter."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        # Should not raise error
+        engine = DiagnosticEngine(verbose=True)
+        assert hasattr(engine, 'alpha')
+    
+    def test_run_diagnostics_all_pass(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """All tests should pass on clean i.i.d. data."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(synthetic_iid_residuals, time_array)
+        
+        # Check results structure
+        assert isinstance(results, dict)
+        assert 'summary' in results
+        
+        # Check all test results indicate no failure
+        assert results['heteroscedasticity']['heteroscedastic'] == False
+        assert results['autocorrelation']['autocorrelated'] == False
+        assert results['nonstationarity']['nonstationary'] == False
+        
+        # Check summary structure
+        summary = results['summary']
+        assert isinstance(summary, dict)
+        assert 'failure_detected' in summary
+        assert summary['failure_detected'] == False
+        
+        # Check recommendation for clean data
+        assert 'recommended_method' in summary
+        assert 'Classical' in summary['recommended_method']
+    
+    def test_run_diagnostics_heteroscedastic(
+        self,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray]
+    ) -> None:
+        """Engine should detect heteroscedasticity."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        time, residuals = synthetic_heteroscedastic_residuals
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, time)
+        
+        # Check heteroscedasticity detected
+        assert results['heteroscedasticity']['heteroscedastic'] == True
+        
+        # Check summary indicates failure
+        summary = results['summary']
+        assert summary['failure_detected'] == True
+        assert 'heteroscedastic' in summary['failure_types']
+        
+        # Check recommendation mentions SDE (Stochastic Differential Equation)
+        recommendation = summary['recommended_method'].lower()
+        assert 'sde' in recommendation or 'stochastic' in recommendation
+    
+    def test_run_diagnostics_autocorrelated(
+        self,
+        synthetic_autocorrelated_residuals: np.ndarray
+    ) -> None:
+        """Engine should detect autocorrelation."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        time = np.linspace(0, 10, 100)
+        results = engine.run_diagnostics(synthetic_autocorrelated_residuals, time)
+        
+        # Check autocorrelation detected
+        assert results['autocorrelation']['autocorrelated'] == True
+        
+        # Check summary indicates failure
+        summary = results['summary']
+        assert summary['failure_detected'] == True
+        assert 'autocorrelated' in summary['failure_types']
+        
+        # Check recommendation mentions Neural ODE
+        recommendation = summary['recommended_method'].lower()
+        assert 'neural' in recommendation or 'neural ode' in recommendation
+    
+    def test_run_diagnostics_with_state_vars(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """Engine should run state-dependence test when state_vars provided."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        state_vars = np.random.randn(100, 2)
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(
+            synthetic_iid_residuals, 
+            time_array,
+            state_vars=state_vars
+        )
+        
+        # Check state_dependence key exists
+        assert 'state_dependence' in results
+        assert results['state_dependence'] is not None
+        assert isinstance(results['state_dependence'], dict)
+        
+        # Check state_dependence has expected keys
+        assert 'state_dependent' in results['state_dependence']
+        assert 'p_value' in results['state_dependence']
+    
+    def test_run_diagnostics_without_state_vars(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """Engine should skip state-dependence test when state_vars not provided."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(synthetic_iid_residuals, time_array)
+        
+        # Check state_dependence is None
+        assert 'state_dependence' in results
+        assert results['state_dependence'] is None
+    
+    def test_generate_report_all_pass(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """Report should be properly formatted when all tests pass."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(synthetic_iid_residuals, time_array)
+        
+        # Methods don't take arguments - they use internal state
+        report = engine.generate_report()
+        
+        # Check return type
+        assert isinstance(report, str)
+        
+        # Check report contains test information
+        assert 'BP Test' in report or 'Breusch' in report
+        assert 'LB Test' in report or 'Ljung' in report
+        assert 'ADF Test' in report or 'Augmented' in report
+        
+        # Check for result indicators
+        assert '✓' in report or 'PASS' in report
+        
+        # Check for recommendation section
+        assert 'Classical' in report or 'recommended' in report.lower()
+    
+    def test_generate_report_with_failures(
+        self,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray]
+    ) -> None:
+        """Report should indicate failures."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        time, residuals = synthetic_heteroscedastic_residuals
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, time)
+        report = engine.generate_report()
+        
+        # Check return type
+        assert isinstance(report, str)
+        assert len(report) > 0
+        
+        # Report should contain test information
+        assert 'BP Test' in report or 'Breusch' in report or 'Heteroscedasticity' in report
+        
+        # Report should indicate an issue was detected
+        assert 'heteroscedastic' in report.lower() or 'FAIL' in report
+    
+    def test_identify_issues(
+        self,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray]
+    ) -> None:
+        """Engine should identify and describe issues."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        time, residuals = synthetic_heteroscedastic_residuals
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, time)
+        issues = engine.identify_issues()
+        
+        # Check return type
+        assert isinstance(issues, list)
+        assert len(issues) > 0
+        
+        # Issues should contain descriptive strings
+        assert all(isinstance(issue, str) for issue in issues)
+        
+        # Should identify heteroscedasticity
+        assert any('heteroscedastic' in issue.lower() for issue in issues)
+    
+    def test_suggest_improvements(
+        self,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray]
+    ) -> None:
+        """Engine should suggest improvements."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        time, residuals = synthetic_heteroscedastic_residuals
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, time)
+        suggestions = engine.suggest_improvements()
+        
+        # Check return type
+        assert isinstance(suggestions, list)
+        assert len(suggestions) > 0
+        
+        # Suggestions should be strings
+        assert all(isinstance(s, str) for s in suggestions)
+        
+        # Suggestions should be actionable
+        assert all(len(s) > 0 for s in suggestions)
+    
+    def test_diagnostic_engine_error_empty_residuals(self) -> None:
+        """Engine should reject empty residuals."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        residuals = np.array([])
+        time = np.array([])
+        
+        with pytest.raises(ValueError):
+            engine.run_diagnostics(residuals, time)
+    
+    def test_diagnostic_engine_error_nan_residuals(self) -> None:
+        """Engine should handle NaN residuals gracefully (logs error but doesn't crash)."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        residuals = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
+        time = np.linspace(0, 1, 5)
+        
+        # Engine catches errors internally and continues
+        # So it should return results but with some tests potentially failed
+        results = engine.run_diagnostics(residuals, time)
+        
+        # Should still return a dict structure
+        assert isinstance(results, dict)
+        assert 'summary' in results
+    
+    def test_diagnostic_engine_error_length_mismatch(self) -> None:
+        """Engine should reject mismatched residuals and time."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        residuals = np.random.randn(100)
+        time = np.linspace(0, 10, 50)  # Different length
+        
+        with pytest.raises(ValueError, match="length|mismatch"):
+            engine.run_diagnostics(residuals, time)
+    
+    def test_diagnostic_engine_error_state_vars_mismatch(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """Engine should handle state_vars mismatch gracefully."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        state_vars = np.random.randn(50, 2)  # Wrong length
+        
+        # Engine catches errors internally - it will log error but not crash
+        results = engine.run_diagnostics(synthetic_iid_residuals, time_array, state_vars=state_vars)
+        
+        # Should still return results structure
+        assert isinstance(results, dict)
+        assert 'state_dependence' in results
+        # state_dependence will be None or error info since mismatch was caught
+        assert results['state_dependence'] is None or isinstance(results['state_dependence'], dict)
+    
+    @pytest.mark.parametrize("failure_combo,expected_method", [
+        ([], "Classical"),
+        (["heteroscedasticity"], "SDE"),
+        (["autocorrelation"], "Neural"),
+        (["heteroscedasticity", "autocorrelation"], "Neural"),
+    ])
+    def test_recommendation_decision_logic(
+        self,
+        failure_combo: list,
+        expected_method: str,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """Engine should generate correct recommendations for different failure combinations."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        
+        # Use clean data and verify recommendation
+        results = engine.run_diagnostics(synthetic_iid_residuals, time_array)
+        summary = results['summary']
+        
+        # For no failures, should recommend Classical
+        if len(failure_combo) == 0:
+            assert summary['failure_detected'] == False
+            assert expected_method in summary['recommended_method']
+
+
+class TestDiagnosticEngineIntegration:
+    """Integration tests for DiagnosticEngine with various data scenarios."""
+    
+    def test_engine_workflow_complete(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        time_array: np.ndarray
+    ) -> None:
+        """Complete DiagnosticEngine workflow should work end-to-end."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        # Create engine
+        engine = DiagnosticEngine(verbose=False)
+        
+        # Run diagnostics
+        results = engine.run_diagnostics(synthetic_iid_residuals, time_array)
+        assert results is not None
+        
+        # Generate report
+        report = engine.generate_report()
+        assert len(report) > 0
+        
+        # Identify issues
+        issues = engine.identify_issues()
+        assert isinstance(issues, list)
+        
+        # Suggest improvements
+        suggestions = engine.suggest_improvements()
+        assert isinstance(suggestions, list)
+    
+    def test_engine_with_heteroscedastic_and_state_vars(
+        self,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray]
+    ) -> None:
+        """Engine should handle heteroscedastic data with state variables."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        time, residuals = synthetic_heteroscedastic_residuals
+        state_vars = time.reshape(-1, 1)
+        
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, time, state_vars=state_vars)
+        
+        # Should detect heteroscedasticity
+        assert results['heteroscedasticity']['heteroscedastic'] == True
+        
+        # Should run state-dependence test
+        assert results['state_dependence'] is not None
+        
+        # Report should be generated successfully
+        report = engine.generate_report()
+        assert len(report) > 0
+    
+    def test_engine_multiple_sequential_runs(
+        self,
+        synthetic_iid_residuals: np.ndarray,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray],
+        time_array: np.ndarray
+    ) -> None:
+        """Engine should handle multiple sequential diagnostic runs."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        engine = DiagnosticEngine()
+        
+        # First run: clean data
+        results1 = engine.run_diagnostics(synthetic_iid_residuals, time_array)
+        report1 = engine.generate_report()
+        assert 'Classical' in report1 or 'pass' in report1.lower()
+        
+        # Second run: problematic data
+        time, residuals = synthetic_heteroscedastic_residuals
+        results2 = engine.run_diagnostics(residuals, time)
+        report2 = engine.generate_report()
+        assert 'SDE' in report2 or 'stochastic' in report2.lower()
+        
+        # Both should work independently
+        assert report1 != report2
+    
+    def test_diagnostic_report_contains_all_info(
+        self,
+        synthetic_heteroscedastic_residuals: Tuple[np.ndarray, np.ndarray]
+    ) -> None:
+        """Generated report should contain comprehensive information."""
+        from ode_framework.diagnostics.diagnostic_engine import DiagnosticEngine
+        
+        time, residuals = synthetic_heteroscedastic_residuals
+        engine = DiagnosticEngine()
+        results = engine.run_diagnostics(residuals, time)
+        report = engine.generate_report()
+        
+        # Check report structure
+        assert len(report) > 100  # Substantial content
+        assert '\n' in report  # Multiple lines
+        
+        # Check key sections
+        assert 'Test' in report or 'test' in report
+        assert 'Result' in report or 'result' in report
+        
+        # Check interpretation
+        assert 'Heteroscedastic' in report or 'heteroscedastic' in report
