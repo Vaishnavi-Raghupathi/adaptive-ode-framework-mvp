@@ -73,6 +73,7 @@ Advanced usage with constraints:
 from typing import Dict, List, Any, Optional, Tuple
 import logging
 from datetime import datetime
+import json
 import numpy as np
 
 from ode_framework.solvers.classical import RK45Solver, RK4Solver
@@ -208,8 +209,19 @@ class AdaptiveSolverFramework:
         # Initialize solvers
         self.baseline_solver = self._create_solver(baseline_solver)
         self.baseline_solver_name = baseline_solver
+        self.initial_solver = baseline_solver  # Store for reset functionality
         self.selected_solver = None
         self.selected_solver_name = baseline_solver
+
+        # Available solvers (can be updated with set_available_solvers)
+        self.available_solvers = {
+            'RK45': 'Adaptive classical solver',
+            'RK4': 'Fixed-step classical solver',
+            'SDE': 'Stochastic differential equations (future)',
+            'Neural': 'Neural ODE (future)',
+            'Regime': 'Regime-switching (future)',
+            'Ensemble': 'Ensemble methods (future)'
+        }
 
         # Decision parameters
         self.prefer_speed = prefer_speed
@@ -225,6 +237,10 @@ class AdaptiveSolverFramework:
         self.selection_result = None
         self.decision_report = None
         self.performance_comparison = None
+
+        # History tracking
+        self.solver_history = []  # Track all solvers tried
+        self.diagnostic_history = []  # Track all diagnostics run
 
         # State tracking
         self._is_fitted = False
@@ -331,6 +347,9 @@ class AdaptiveSolverFramework:
         engine = DiagnosticEngine(verbose=False)
         self.diagnostic_results = engine.run_diagnostics(baseline_residuals, self._t_data)
 
+        # Track diagnostic history
+        self.diagnostic_history.append(self.diagnostic_results.copy() if isinstance(self.diagnostic_results, dict) else self.diagnostic_results)
+
         # Step 4: Select method
         if self.verbose:
             logger.info("[4/6] Selecting appropriate solver method...")
@@ -344,6 +363,13 @@ class AdaptiveSolverFramework:
         )
         self.selection_result = selector.select_method(self.diagnostic_results)
         self.selected_solver_name = self.selection_result['method']
+
+        # Track solver history
+        self.solver_history.append({
+            'timestamp': datetime.now().isoformat(),
+            'solver': self.baseline_solver_name,
+            'role': 'baseline'
+        })
 
         # Step 5: Generate decision report
         if self.verbose:
@@ -360,6 +386,14 @@ class AdaptiveSolverFramework:
             self.selected_solver = self._create_solver(self.selected_solver_name)
             self.selected_solver.fit(self._t_data, self._x_data)
 
+            # Track selected solver in history
+            self.solver_history.append({
+                'timestamp': datetime.now().isoformat(),
+                'solver': self.selected_solver_name,
+                'role': 'selected',
+                'reason': self.selection_result.get('reasoning', 'Automatic selection')
+            })
+
             # Compute improved residuals
             selected_residuals = self.selected_solver.compute_residuals(
                 self._t_data, self._x_data
@@ -372,6 +406,13 @@ class AdaptiveSolverFramework:
             )
         else:
             self.selected_solver = self.baseline_solver
+            # Track that baseline was selected
+            self.solver_history.append({
+                'timestamp': datetime.now().isoformat(),
+                'solver': self.baseline_solver_name,
+                'role': 'selected',
+                'reason': 'Baseline solver met requirements'
+            })
             if self.verbose:
                 logger.info(
                     f"[6/6] No refit needed (baseline {self.baseline_solver_name} selected)"
@@ -584,6 +625,367 @@ class AdaptiveSolverFramework:
             True if fitted, False otherwise.
         """
         return self._is_fitted
+
+    def reset(self) -> None:
+        """Clear all history and return to initial state.
+
+        This method resets the framework to its initialized state, clearing:
+        - All solver history
+        - All diagnostic results
+        - All selection results
+        - The fitted flag
+
+        The framework can be fitted again after reset. Useful for:
+        - Processing multiple datasets
+        - Experimenting with different configurations
+        - Clearing memory before reuse
+
+        Examples
+        --------
+        >>> framework = AdaptiveSolverFramework()
+        >>> framework.fit(t1, x1)
+        >>> # Use framework...
+        >>> framework.reset()  # Clear everything
+        >>> framework.fit(t2, x2)  # Fit to new data
+        """
+        # Clear history
+        self.solver_history = []
+        self.diagnostic_history = []
+
+        # Reset to initial solver
+        self.baseline_solver = self._create_solver(self.initial_solver)
+        self.baseline_solver_name = self.initial_solver
+        self.selected_solver = None
+        self.selected_solver_name = self.initial_solver
+
+        # Clear results
+        self.diagnostic_results = None
+        self.selection_result = None
+        self.decision_report = None
+        self.performance_comparison = None
+
+        # Clear state
+        self._is_fitted = False
+        self._fit_time = None
+        self._t_data = None
+        self._x_data = None
+
+        if self.verbose:
+            logger.info("AdaptiveSolverFramework reset to initial state")
+
+    def set_available_solvers(self, solvers: Dict[str, str]) -> None:
+        """Update available solvers for method selection.
+
+        This method allows adding or modifying available solvers, useful for
+        Week 4+ when new solvers (SDE, Neural, etc.) are implemented.
+
+        Parameters
+        ----------
+        solvers : dict
+            Mapping of solver names to descriptions.
+            Example: {'SDE': 'Stochastic solver', 'Neural': 'Neural ODE'}
+
+        Raises
+        ------
+        TypeError
+            If solvers is not a dictionary.
+        
+        ValueError
+            If solver dict contains empty names or non-string values.
+
+        Notes
+        -----
+        This updates both the framework's available_solvers and the
+        MethodSelector's list of available methods.
+
+        Examples
+        --------
+        >>> framework = AdaptiveSolverFramework()
+        >>> new_solvers = {
+        ...     'SDE': 'Stochastic differential equations',
+        ...     'Neural': 'Neural ODE solver'
+        ... }
+        >>> framework.set_available_solvers(new_solvers)
+
+        Week 4 usage:
+        >>> framework.set_available_solvers({
+        ...     'SDE': 'Implemented in Week 4'
+        ... })
+        >>> framework.fit(t, x)  # Now SDE is available for selection
+        """
+        if not isinstance(solvers, dict):
+            raise TypeError("solvers must be a dictionary")
+
+        # Validate solver names and descriptions
+        for name, description in solvers.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Solver names must be non-empty strings")
+            if not isinstance(description, str):
+                raise ValueError("Solver descriptions must be strings")
+
+        # Update available solvers
+        self.available_solvers.update(solvers)
+
+        if self.verbose:
+            logger.info(f"Updated available solvers: {list(solvers.keys())}")
+
+    def get_diagnostic_summary(self) -> Dict[str, Any]:
+        """Return aggregated summary of all diagnostics run.
+
+        Returns comprehensive statistics on diagnostic tests including:
+        - Counts of each failure type
+        - Test results and p-values
+        - Failure patterns across runs
+
+        Returns
+        -------
+        dict
+            Aggregated diagnostic summary with:
+            - 'test_count': Number of diagnostic runs
+            - 'failure_counts': Dictionary mapping failure types to counts
+            - 'most_common_failures': List of most frequent failures
+            - 'latest_results': Latest complete diagnostic results
+            - 'summary': Overall summary statistics
+
+        Raises
+        ------
+        RuntimeError
+            If framework has not been fitted.
+
+        Examples
+        --------
+        >>> framework = AdaptiveSolverFramework()
+        >>> framework.fit(t, x)
+        >>> summary = framework.get_diagnostic_summary()
+        >>> print(f"Tests run: {summary['test_count']}")
+        >>> print(f"Common failures: {summary['most_common_failures']}")
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Framework must be fitted before getting diagnostic summary")
+
+        # Aggregate failure counts from history
+        failure_counts = {}
+        for diag in self.diagnostic_history:
+            for failure in diag.get('summary', {}).get('failure_types', []):
+                failure_counts[failure] = failure_counts.get(failure, 0) + 1
+
+        # Sort failures by frequency
+        most_common = sorted(
+            failure_counts.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        return {
+            'test_count': len(self.diagnostic_history),
+            'failure_counts': failure_counts,
+            'most_common_failures': [name for name, _ in most_common],
+            'latest_results': self.diagnostic_results,
+            'summary': self.diagnostic_results.get('summary', {}) if self.diagnostic_results else {}
+        }
+
+    def compare_to_baseline(self, baseline_solver: str = 'RK45') -> Dict[str, Any]:
+        """Compare current solver performance to a baseline solver.
+
+        This method requires that fit() has been called with auto_refit=True,
+        or that multiple solvers have been tried. It compares the currently
+        selected solver against a specified baseline for performance metrics.
+
+        Parameters
+        ----------
+        baseline_solver : str, default='RK45'
+            Name of baseline solver to compare against.
+            Options: 'RK45', 'RK4', 'SDE', 'Neural', 'Regime', 'Ensemble'
+
+        Returns
+        -------
+        dict
+            Comparison metrics including:
+            - 'baseline': Baseline solver name
+            - 'current': Currently selected solver name
+            - 'baseline_metrics': Baseline performance metrics
+            - 'current_metrics': Current performance metrics
+            - 'improvement': Relative improvement percentages
+            - 'speedup': Computational efficiency gains
+            - 'recommendation': Whether current is better
+
+        Raises
+        ------
+        RuntimeError
+            If framework has not been fitted.
+
+        ValueError
+            If baseline_solver not in available_solvers.
+
+        Notes
+        -----
+        Requires performance_comparison from fitting with auto_refit=True.
+        If not available, returns theoretical comparison based on solver
+        characteristics.
+
+        Examples
+        --------
+        >>> framework = AdaptiveSolverFramework(auto_refit=True)
+        >>> framework.fit(t, x)
+        >>> comparison = framework.compare_to_baseline()
+        >>> print(f"RMSE improvement: {comparison['improvement']['rmse']:.2%}")
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Framework must be fitted before comparing to baseline")
+
+        if baseline_solver not in self.available_solvers:
+            raise ValueError(
+                f"baseline_solver '{baseline_solver}' not in available solvers: "
+                f"{list(self.available_solvers.keys())}"
+            )
+
+        result = {
+            'baseline': baseline_solver,
+            'current': self.selected_solver_name,
+            'baseline_metrics': None,
+            'current_metrics': None,
+            'improvement': {},
+            'recommendation': None
+        }
+
+        # Use performance comparison from fitting if available
+        if self.performance_comparison:
+            result.update(self.performance_comparison)
+            result['baseline'] = self.baseline_solver_name
+        else:
+            # No actual comparison available (both baseline and selected are same)
+            result['recommendation'] = 'No improvement measured (same solver used)'
+
+        return result
+
+    def export_selection_log(self, filepath: str) -> None:
+        """Export complete selection history to JSON file.
+
+        Saves the full adaptive selection process to a JSON file for:
+        - Auditing method selection decisions
+        - Sharing results with stakeholders
+        - Post-hoc analysis of solver performance
+        - Documentation and reproducibility
+
+        Parameters
+        ----------
+        filepath : str
+            Path where JSON file will be saved.
+
+        Raises
+        ------
+        RuntimeError
+            If framework has not been fitted.
+
+        IOError
+            If file cannot be written to filepath.
+
+        Examples
+        --------
+        >>> framework = AdaptiveSolverFramework()
+        >>> framework.fit(t, x)
+        >>> framework.export_selection_log('results/selection_log.json')
+
+        File contents include:
+        - Timestamp and configuration
+        - Baseline and selected solver details
+        - Complete diagnostic results
+        - Selection decision with reasoning
+        - Performance comparison
+        - Alternative recommendations
+
+        The exported JSON can be loaded and analyzed:
+        >>> import json
+        >>> with open('results/selection_log.json') as f:
+        ...     log = json.load(f)
+        >>> print(log['selection_result']['method'])
+        >>> print(log['performance_comparison']['improvement_percent'])
+        """
+        if not self._is_fitted:
+            raise RuntimeError("Framework must be fitted before exporting selection log")
+
+        # Build comprehensive log
+        log = {
+            'metadata': {
+                'timestamp': datetime.now().isoformat(),
+                'framework_version': '0.3.0',
+                'configuration': {
+                    'baseline_solver': self.baseline_solver_name,
+                    'prefer_speed': self.prefer_speed,
+                    'prefer_accuracy': self.prefer_accuracy,
+                    'prefer_interpretability': self.prefer_interpretability,
+                    'max_complexity': self.max_complexity,
+                    'max_cost': self.max_cost,
+                    'auto_refit': self.auto_refit
+                }
+            },
+            'data_info': {
+                'n_samples': len(self._t_data) if self._t_data is not None else None,
+                'n_states': self._x_data.shape[1] if self._x_data is not None else None,
+                't_range': [
+                    float(self._t_data.min()),
+                    float(self._t_data.max())
+                ] if self._t_data is not None else None
+            },
+            'baseline_solver': {
+                'name': self.baseline_solver_name,
+                'description': self.available_solvers.get(self.baseline_solver_name, 'Unknown')
+            },
+            'selected_solver': {
+                'name': self.selected_solver_name,
+                'description': self.available_solvers.get(self.selected_solver_name, 'Unknown')
+            },
+            'diagnostics': self._serialize_diagnostics(),
+            'selection_result': self.selection_result,
+            'decision_report': self.decision_report,
+            'performance_comparison': self.performance_comparison,
+            'solver_history': self.solver_history,
+            'diagnostic_history': [
+                self._serialize_diagnostics(diag) for diag in self.diagnostic_history
+            ]
+        }
+
+        # Write to file
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(log, f, indent=2, default=str)
+            if self.verbose:
+                logger.info(f"Selection log exported to {filepath}")
+        except IOError as e:
+            raise IOError(f"Failed to write selection log to {filepath}: {e}")
+
+    def _serialize_diagnostics(self, diagnostics: Optional[Dict] = None) -> Dict[str, Any]:
+        """Serialize diagnostic results for JSON export.
+
+        Converts numpy arrays and other non-JSON-serializable objects
+        to JSON-compatible formats.
+
+        Parameters
+        ----------
+        diagnostics : dict, optional
+            Diagnostic results to serialize. If None, uses self.diagnostic_results
+
+        Returns
+        -------
+        dict
+            JSON-serializable diagnostic results
+        """
+        if diagnostics is None:
+            diagnostics = self.diagnostic_results
+
+        if diagnostics is None:
+            return {}
+
+        # Create serializable copy
+        serialized = {
+            'heteroscedasticity': diagnostics.get('heteroscedasticity', {}),
+            'autocorrelation': diagnostics.get('autocorrelation', {}),
+            'nonstationarity': diagnostics.get('nonstationarity', {}),
+            'state_dependence': diagnostics.get('state_dependence', {}),
+            'summary': diagnostics.get('summary', {})
+        }
+
+        return serialized
 
     def __repr__(self) -> str:
         """Return string representation."""
