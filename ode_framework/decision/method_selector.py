@@ -553,6 +553,374 @@ class MethodSelector:
 
         return steps
 
+    def compute_confidence(
+        self,
+        diagnostic_results: Dict[str, Any],
+        recommendation: str
+    ) -> str:
+        """Assess confidence in recommendation based on diagnostic evidence.
+
+        Confidence is determined by evaluating:
+        1. Number of failures (fewer failures = higher confidence)
+        2. P-value magnitudes (stronger evidence = higher confidence)
+        3. Consistency of failure pattern (clear patterns = higher confidence)
+        4. Statistical power (sufficient data = higher confidence)
+
+        Confidence Criteria
+        -------------------
+        HIGH CONFIDENCE:
+        - Single clear failure with strong statistical evidence (p < 0.01)
+        - No failures (clean data)
+        - Consistent failure pattern matching selected method
+
+        MEDIUM CONFIDENCE:
+        - 2-3 failures with moderate evidence (0.01 < p < 0.05)
+        - Single failure with moderate evidence (0.05 < p < 0.10)
+        - Multiple failures with inconsistent patterns
+
+        LOW CONFIDENCE:
+        - 4+ failures (highly uncertain system)
+        - Weak statistical evidence across multiple tests (p > 0.10)
+        - Edge cases or conflicting failure patterns
+
+        Parameters
+        ----------
+        diagnostic_results : dict
+            Output from DiagnosticEngine.run_diagnostics().
+        recommendation : str
+            Selected method name.
+
+        Returns
+        -------
+        str
+            Confidence level: 'high', 'medium', or 'low'.
+
+        Notes
+        -----
+        This is an extended version of _determine_confidence that considers
+        p-value magnitudes and consistency for more nuanced assessment.
+        """
+        # Extract p-values
+        hetero_p = diagnostic_results['heteroscedasticity'].get('p_value', 1.0)
+        auto_p = diagnostic_results['autocorrelation'].get('p_value', 1.0)
+        nonstat_p = diagnostic_results['nonstationarity'].get('p_value', 1.0)
+        state_p = (diagnostic_results.get('state_dependence') or {}).get('p_value', 1.0)
+
+        # Extract failure flags
+        failures = self._extract_failures(diagnostic_results)
+        num_failures = failures['num_failures']
+
+        # No failures → HIGH confidence
+        if num_failures == 0:
+            return 'high'
+
+        # Single failure → Check p-value strength
+        if num_failures == 1:
+            p_values = [hetero_p, auto_p, nonstat_p, state_p]
+            min_p = min([p for p in p_values if p < 0.5])  # Get actual test p-value
+
+            if min_p < 0.01:
+                return 'high'  # Very strong evidence
+            elif min_p < 0.05:
+                return 'medium'  # Moderate evidence
+            else:
+                return 'low'  # Weak evidence
+
+        # Two to three failures → Check consistency
+        if 2 <= num_failures <= 3:
+            # Check if failures are consistent with recommendation
+            if recommendation in ['Neural', 'Ensemble']:
+                return 'medium'  # Complex methods handle multiple failures
+            
+            # Check p-value magnitudes
+            p_values = [hetero_p, auto_p, nonstat_p, state_p]
+            strong_evidence = sum([p < 0.01 for p in p_values])
+            
+            if strong_evidence >= 2:
+                return 'high'  # Multiple strong signals
+            else:
+                return 'medium'
+
+        # Four or more failures → LOW confidence
+        if num_failures >= 4:
+            return 'low'
+
+        return 'medium'  # Default fallback
+
+    def get_alternative_solvers(self, primary_recommendation: str) -> List[str]:
+        """Suggest alternative solvers in priority order.
+
+        Provides a ranked list of alternative methods that could be used
+        if the primary recommendation proves inadequate. Ordering is based on:
+        1. Computational cost
+        2. Accuracy vs. speed tradeoff
+        3. Likelihood of addressing undiagnosed issues
+
+        Alternative Strategy
+        --------------------
+        - If primary is simplistic (Classical) → suggest more sophisticated options
+        - If primary is sophisticated → suggest less costly alternatives for validation
+        - Always maintain at least one classical option as fallback
+
+        Parameters
+        ----------
+        primary_recommendation : str
+            The primary recommended method (e.g., 'SDE', 'Neural').
+
+        Returns
+        -------
+        list
+            Ordered list of alternative method names.
+            Empty list if primary is the only option.
+
+        Examples
+        --------
+        >>> selector = MethodSelector()
+        >>> alternatives = selector.get_alternative_solvers('Neural')
+        >>> print(alternatives)  # ['SDE', 'Regime', 'Classical']
+
+        >>> alternatives = selector.get_alternative_solvers('Classical')
+        >>> print(alternatives)  # ['SDE', 'Regime', 'Neural']
+        """
+        # Define fallback chains for each method
+        fallback_chains = {
+            'Classical': ['SDE', 'Regime', 'Neural', 'Ensemble'],
+            'SDE': ['Regime', 'Neural', 'Classical', 'Ensemble'],
+            'Regime': ['Neural', 'SDE', 'Ensemble', 'Classical'],
+            'Neural': ['Regime', 'SDE', 'Ensemble', 'Classical'],
+            'Ensemble': ['Neural', 'Regime', 'SDE', 'Classical']
+        }
+
+        # Get fallback chain, defaulting to all methods if not found
+        if primary_recommendation in fallback_chains:
+            alternatives = fallback_chains[primary_recommendation]
+        else:
+            # For unknown methods, return all others ordered by complexity
+            all_methods = list(self.METHOD_CHARACTERISTICS.keys())
+            alternatives = [m for m in all_methods if m != primary_recommendation]
+
+        return alternatives
+
+    def generate_decision_report(
+        self,
+        diagnostic_results: Dict[str, Any],
+        selection_result: Dict[str, Any],
+        include_confidence_breakdown: bool = True
+    ) -> Dict[str, Any]:
+        """Generate comprehensive decision report for logging and debugging.
+
+        Creates a detailed report documenting the decision process, including:
+        - Complete diagnostic summary
+        - Selected recommendation with confidence
+        - Decision tree path (which rules were applied)
+        - Confidence breakdown (reasons for confidence level)
+        - Alternative options considered
+        - P-value analysis
+
+        This report is useful for:
+        1. Debugging unexpected recommendations
+        2. Auditing decision logic
+        3. Communicating results to stakeholders
+        4. Iterating on rule sets
+
+        Parameters
+        ----------
+        diagnostic_results : dict
+            Output from DiagnosticEngine.run_diagnostics().
+        selection_result : dict
+            Output from select_method() or recommend_method().
+        include_confidence_breakdown : bool, default=True
+            If True, include detailed confidence scoring breakdown.
+
+        Returns
+        -------
+        dict
+            Comprehensive decision report with keys:
+            - 'timestamp': datetime of report generation
+            - 'diagnostic_summary': Summary of test results
+            - 'recommendation': Selected method
+            - 'confidence': Confidence level with detailed breakdown
+            - 'decision_tree_path': List of rules applied (in order)
+            - 'p_value_analysis': Statistical evidence summary
+            - 'alternatives': Alternative methods with rationales
+            - 'next_steps': Recommended actions
+            - 'reasoning': Full explanation
+
+        Examples
+        --------
+        >>> from ode_framework.decision import recommend_method
+        >>> from datetime import datetime
+        >>> results = engine.run_diagnostics(residuals, t_data)
+        >>> recommendation = recommend_method(results)
+        >>> selector = MethodSelector()
+        >>> report = selector.generate_decision_report(results, recommendation)
+        >>> print(f"Recommendation: {report['recommendation']}")
+        >>> print(f"Confidence: {report['confidence']['level']}")
+        """
+        from datetime import datetime
+
+        # Extract failure information
+        failures = self._extract_failures(diagnostic_results)
+
+        # Determine which rules were applied (decision tree path)
+        decision_path = self._determine_decision_path(failures)
+
+        # Compute confidence with detailed breakdown
+        if include_confidence_breakdown:
+            confidence_breakdown = self._compute_confidence_breakdown(
+                diagnostic_results,
+                selection_result['method']
+            )
+        else:
+            confidence_breakdown = {}
+
+        # P-value analysis
+        p_value_analysis = {
+            'heteroscedasticity': {
+                'p_value': diagnostic_results['heteroscedasticity'].get('p_value'),
+                'detected': diagnostic_results['heteroscedasticity'].get('heteroscedastic', False),
+                'interpretation': 'Variance changes over time' if diagnostic_results['heteroscedasticity'].get('heteroscedastic') else 'Constant variance'
+            },
+            'autocorrelation': {
+                'p_value': diagnostic_results['autocorrelation'].get('p_value'),
+                'detected': diagnostic_results['autocorrelation'].get('autocorrelated', False),
+                'interpretation': 'Residuals are correlated' if diagnostic_results['autocorrelation'].get('autocorrelated') else 'Residuals are independent'
+            },
+            'nonstationarity': {
+                'p_value': diagnostic_results['nonstationarity'].get('p_value'),
+                'detected': diagnostic_results['nonstationarity'].get('nonstationary', False),
+                'interpretation': 'Mean/variance changes over time' if diagnostic_results['nonstationarity'].get('nonstationary') else 'System is stationary'
+            },
+            'state_dependence': {
+                'p_value': (diagnostic_results.get('state_dependence') or {}).get('p_value'),
+                'detected': (diagnostic_results.get('state_dependence') or {}).get('state_dependent', False),
+                'interpretation': 'Errors depend on state' if (diagnostic_results.get('state_dependence') or {}).get('state_dependent') else 'Errors are independent of state'
+            }
+        }
+
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'diagnostic_summary': {
+                'num_failures': failures['num_failures'],
+                'failure_types': [k for k, v in failures.items() if v and k != 'num_failures'],
+                'all_tests': diagnostic_results['summary'].get('failure_types', [])
+            },
+            'recommendation': selection_result['method'],
+            'confidence': {
+                'level': selection_result['confidence'],
+                'breakdown': confidence_breakdown
+            },
+            'decision_tree_path': decision_path,
+            'p_value_analysis': p_value_analysis,
+            'alternatives': selection_result['alternatives'],
+            'next_steps': selection_result['next_steps'],
+            'reasoning': selection_result['reasoning'],
+            'method_characteristics': self.METHOD_CHARACTERISTICS.get(
+                selection_result['method'],
+                {}
+            )
+        }
+
+    def _determine_decision_path(self, failures: Dict[str, Any]) -> List[str]:
+        """Determine which decision rules were applied.
+
+        Parameters
+        ----------
+        failures : dict
+            Failure status from _extract_failures().
+
+        Returns
+        -------
+        list
+            Ordered list of decision rules applied.
+        """
+        path = []
+
+        if failures['num_failures'] == 0:
+            path.append("Rule 1: No failures detected → Classical solver")
+        elif failures['num_failures'] == 1:
+            if failures['heteroscedastic']:
+                path.append("Rule 2: Heteroscedasticity only → SDE recommended")
+            elif failures['autocorrelated']:
+                path.append("Rule 3: Autocorrelation only → Neural or Regime")
+            elif failures['nonstationary']:
+                path.append("Rule 4: Nonstationarity only → Regime recommended")
+            elif failures['state_dependent']:
+                path.append("Rule 5: State dependence only → Neural recommended")
+        else:
+            path.append(f"Rule 6: Multiple failures ({failures['num_failures']}) → Sophisticated method")
+
+        return path
+
+    def _compute_confidence_breakdown(
+        self,
+        diagnostic_results: Dict[str, Any],
+        selected_method: str
+    ) -> Dict[str, Any]:
+        """Compute detailed confidence scoring breakdown.
+
+        Parameters
+        ----------
+        diagnostic_results : dict
+            Diagnostic results.
+        selected_method : str
+            Selected method.
+
+        Returns
+        -------
+        dict
+            Detailed breakdown of confidence factors.
+        """
+        # Extract p-values
+        hetero_p = diagnostic_results['heteroscedasticity'].get('p_value', 1.0)
+        auto_p = diagnostic_results['autocorrelation'].get('p_value', 1.0)
+        nonstat_p = diagnostic_results['nonstationarity'].get('p_value', 1.0)
+        state_p = (diagnostic_results.get('state_dependence') or {}).get('p_value', 1.0)
+
+        failures = self._extract_failures(diagnostic_results)
+
+        # Assess evidence strength
+        strong_signals = sum([
+            hetero_p < 0.01,
+            auto_p < 0.01,
+            nonstat_p < 0.01,
+            state_p < 0.01
+        ])
+
+        moderate_signals = sum([
+            0.01 <= hetero_p < 0.05,
+            0.01 <= auto_p < 0.05,
+            0.01 <= nonstat_p < 0.05,
+            0.01 <= state_p < 0.05
+        ])
+
+        weak_signals = sum([
+            hetero_p >= 0.05,
+            auto_p >= 0.05,
+            nonstat_p >= 0.05,
+            state_p >= 0.05
+        ])
+
+        return {
+            'num_failures': failures['num_failures'],
+            'strong_signals': strong_signals,
+            'moderate_signals': moderate_signals,
+            'weak_signals': weak_signals,
+            'evidence_quality': (
+                'very_strong' if strong_signals >= 2 else
+                'strong' if strong_signals == 1 else
+                'moderate' if moderate_signals >= 2 else
+                'weak'
+            ),
+            'method_fit': (
+                'excellent' if failures['num_failures'] == 0 else
+                'good' if failures['num_failures'] == 1 else
+                'adequate' if failures['num_failures'] <= 3 else
+                'uncertain'
+            ),
+            'recommendation': f"{selected_method} is {'well-suited' if strong_signals >= 1 else 'suitable'} for this pattern"
+        }
+
 
 # Convenience functions for quick selection
 
