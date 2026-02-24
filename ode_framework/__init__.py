@@ -9,7 +9,9 @@ Core Modules:
     - solvers: ODE solver implementations (RK4, RK45)
     - metrics: Error metrics and performance evaluation
     - utils: Test problems and utility functions
-    - diagnostics: Solver validation and statistical tests (Week 2+)
+    - diagnostics: Solver validation and statistical tests (Week 2)
+    - decision: Automatic solver selection based on diagnostics (Week 3)
+    - adaptive: Complete adaptive pipeline orchestration (Week 3+)
 
 Quick Start:
     >>> from ode_framework.solvers.classical import RK45Solver
@@ -38,13 +40,15 @@ Subpackages:
     - metrics: L2 norm, MSE, RMSE, R-squared, compute_all_metrics
     - utils: exponential_decay, harmonic_oscillator, logistic_growth
     - diagnostics: Statistical tests, DiagnosticEngine, visualizations
+    - decision: MethodSelector, automatic solver recommendation
+    - adaptive: AdaptiveSolverFramework, complete pipeline
 
-Version: 0.1.0 (Week 1 MVP)
+Version: 0.3.0 (Week 3 Adaptive Pipeline)
 Author: Vaishnavi Raghupathi
 License: Apache 2.0
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 __author__ = "Vaishnavi Raghupathi"
 __email__ = "vaishnavi.raghupathi@example.com"
 
@@ -53,11 +57,15 @@ from . import solvers
 from . import metrics
 from . import utils
 from . import diagnostics
+from . import decision
+from . import adaptive
 
 __all__ = [
     "solvers",
     "metrics",
     "utils",
     "diagnostics",
+    "decision",
+    "adaptive",
     "__version__",
 ]
