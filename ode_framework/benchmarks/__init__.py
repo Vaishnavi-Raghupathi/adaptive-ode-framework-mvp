@@ -51,12 +51,18 @@ from .benchmark_problems import (
     VanDerPolOscillator,
     LorenzSystem,
     NoisyExponentialDecay,
-    run_benchmark_suite
+    run_benchmark_suite,
+    run_comprehensive_benchmarks,
+    check_expected_diagnostics,
+    compute_all_metrics
 )
 
 __all__ = [
     'VanDerPolOscillator',
     'LorenzSystem',
     'NoisyExponentialDecay',
-    'run_benchmark_suite'
+    'run_benchmark_suite',
+    'run_comprehensive_benchmarks',
+    'check_expected_diagnostics',
+    'compute_all_metrics'
 ]

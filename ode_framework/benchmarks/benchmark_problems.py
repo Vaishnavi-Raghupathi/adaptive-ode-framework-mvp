@@ -28,10 +28,12 @@ Running full benchmark suite:
 >>> results = run_benchmark_suite(framework)
 """
 
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional, List
 import numpy as np
 from scipy.integrate import solve_ivp
 import logging
+import time
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -773,3 +775,277 @@ def run_benchmark_suite(
         results['summary']['success_rate'] = 0.0
     
     return results
+
+
+def check_expected_diagnostics(
+    actual_diagnostics: Dict[str, Any],
+    expected: Dict[str, bool]
+) -> bool:
+    """Check if diagnostic results match expected patterns.
+    
+    Parameters
+    ----------
+    actual_diagnostics : dict
+        Actual diagnostic results from framework fitting.
+    
+    expected : dict
+        Expected diagnostic patterns (True/False for each test).
+    
+    Returns
+    -------
+    bool
+        True if all expected patterns match actual results.
+    
+    Notes
+    -----
+    Extracts boolean test results from nested diagnostic dictionaries
+    and compares against expected patterns.
+    """
+    checks_passed = 0
+    checks_total = 0
+    
+    for diag_type, expected_value in expected.items():
+        checks_total += 1
+        
+        if diag_type == 'autocorrelated':
+            actual = actual_diagnostics.get('autocorrelation', {}).get('autocorrelated', False)
+        elif diag_type == 'heteroscedastic':
+            actual = actual_diagnostics.get('heteroscedasticity', {}).get('heteroscedastic', False)
+        elif diag_type == 'nonstationary':
+            actual = actual_diagnostics.get('nonstationarity', {}).get('nonstationary', False)
+        elif diag_type == 'state_dependent':
+            actual = actual_diagnostics.get('state_dependence', {}).get('state_dependent', False) if actual_diagnostics.get('state_dependence') else False
+        else:
+            continue
+        
+        if actual == expected_value:
+            checks_passed += 1
+    
+    # All checks must pass
+    return checks_passed == checks_total if checks_total > 0 else False
+
+
+def compute_all_metrics(
+    x_actual: np.ndarray,
+    x_predicted: np.ndarray
+) -> Dict[str, float]:
+    """Compute performance metrics for solver evaluation.
+    
+    Parameters
+    ----------
+    x_actual : np.ndarray
+        Actual state values.
+    
+    x_predicted : np.ndarray
+        Predicted state values.
+    
+    Returns
+    -------
+    dict
+        Dictionary with metrics:
+        - 'rmse': Root mean squared error
+        - 'mse': Mean squared error
+        - 'mae': Mean absolute error
+        - 'r_squared': R² coefficient of determination
+        - 'nrmse': Normalized RMSE
+    """
+    # Flatten for univariate and multivariate cases
+    y_true = x_actual.flatten()
+    y_pred = x_predicted.flatten()
+    
+    # Mean squared error
+    mse = np.mean((y_true - y_pred) ** 2)
+    rmse = np.sqrt(mse)
+    
+    # Mean absolute error
+    mae = np.mean(np.abs(y_true - y_pred))
+    
+    # R² coefficient
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+    
+    # Normalized RMSE (by actual range)
+    y_range = np.ptp(y_true)
+    nrmse = (rmse / y_range) if y_range > 0 else np.inf
+    
+    return {
+        'mse': mse,
+        'rmse': rmse,
+        'mae': mae,
+        'r_squared': r_squared,
+        'nrmse': nrmse
+    }
+
+
+def run_comprehensive_benchmarks(
+    framework,
+    problems: Optional[List] = None,
+    noise_levels: Optional[List[float]] = None,
+    n_trials: int = 3,
+    verbose: bool = True
+) -> pd.DataFrame:
+    """Run comprehensive benchmark evaluation with varying difficulty.
+    
+    This function tests the framework across multiple problems and noise levels,
+    running multiple trials for statistical robustness. For each configuration,
+    it measures:
+    - Prediction accuracy (RMSE, R²)
+    - Computational performance (fit/predict time)
+    - Diagnostic detection accuracy
+    - Solver selection consistency
+    
+    Parameters
+    ----------
+    framework : AdaptiveSolverFramework
+        Framework to benchmark.
+    
+    problems : list, optional
+        List of benchmark problem instances. If None, uses defaults:
+        [VanDerPolOscillator(), LorenzSystem(), NoisyExponentialDecay()]
+    
+    noise_levels : list, optional
+        List of noise levels to test. Default: [0.0, 0.02, 0.05]
+    
+    n_trials : int, default=3
+        Number of trials per configuration for averaging.
+    
+    verbose : bool, default=True
+        Print progress information.
+    
+    Returns
+    -------
+    pd.DataFrame
+        Results table with columns:
+        - 'problem': Problem name
+        - 'noise_level': Applied noise level
+        - 'rmse_mean': Mean RMSE across trials
+        - 'rmse_std': Std dev of RMSE
+        - 'mae_mean': Mean absolute error
+        - 'r2_mean': Mean R² score
+        - 'r2_std': Std dev of R²
+        - 'diagnostics_correct': All diagnostics detected correctly
+        - 'solver_used': Selected solver name
+        - 'fit_time_mean': Mean fitting time (seconds)
+        - 'predict_time_mean': Mean prediction time (seconds)
+        - 'n_trials': Number of trials (for reference)
+    
+    Examples
+    --------
+    >>> from ode_framework.benchmarks import run_comprehensive_benchmarks
+    >>> from ode_framework.adaptive import AdaptiveSolverFramework
+    >>> framework = AdaptiveSolverFramework()
+    >>> results = run_comprehensive_benchmarks(
+    ...     framework,
+    ...     noise_levels=[0.0, 0.05],
+    ...     n_trials=5
+    ... )
+    >>> print(results.to_string())
+    >>> # Save results
+    >>> results.to_csv('benchmark_results.csv', index=False)
+    
+    Notes
+    -----
+    This is a more thorough evaluation than run_benchmark_suite(), which
+    provides quick validation. Use this for comprehensive performance analysis.
+    """
+    if problems is None:
+        problems = [
+            VanDerPolOscillator(mu=1.0),
+            LorenzSystem(),
+            NoisyExponentialDecay(noise_coefficient=0.1)
+        ]
+    
+    if noise_levels is None:
+        noise_levels = [0.0, 0.02, 0.05]
+    
+    results = []
+    total_configs = len(problems) * len(noise_levels)
+    current_config = 0
+    
+    for problem in problems:
+        for noise_level in noise_levels:
+            current_config += 1
+            
+            if verbose:
+                print(
+                    f"\n[{current_config}/{total_configs}] "
+                    f"{problem.name} (noise={noise_level:.3f})"
+                )
+            
+            trial_metrics = []
+            
+            for trial in range(n_trials):
+                if verbose:
+                    print(f"  Trial {trial + 1}/{n_trials}...", end=" ", flush=True)
+                
+                # Generate data
+                if isinstance(problem, NoisyExponentialDecay):
+                    data = problem.generate_data()
+                else:
+                    data = problem.generate_data(noise_level=noise_level)
+                
+                # Use first component for univariate diagnostics
+                x_for_fit = data['x'][:, [0]] if data['x'].ndim > 1 else data['x']
+                t = data['t']
+                
+                # Fit framework
+                start_time = time.time()
+                framework.reset()
+                framework.fit(t, x_for_fit)
+                fit_time = time.time() - start_time
+                
+                # Predict
+                start_time = time.time()
+                x_pred = framework.predict(t)
+                pred_time = time.time() - start_time
+                
+                # Compute metrics
+                metrics = compute_all_metrics(x_for_fit, x_pred)
+                
+                # Check diagnostics
+                diagnostics_correct = False
+                if framework.diagnostic_history:
+                    diag = framework.diagnostic_history[-1]
+                    diagnostics_correct = check_expected_diagnostics(
+                        diag,
+                        problem.expected_diagnostics
+                    )
+                
+                trial_metrics.append({
+                    'rmse': metrics['rmse'],
+                    'mae': metrics['mae'],
+                    'r2': metrics['r_squared'],
+                    'fit_time': fit_time,
+                    'pred_time': pred_time,
+                    'diag_correct': diagnostics_correct,
+                    'solver': framework.selected_solver_name
+                })
+                
+                if verbose:
+                    print(f"RMSE={metrics['rmse']:.4f}, R²={metrics['r_squared']:.4f}")
+            
+            # Aggregate trials
+            rmse_values = [m['rmse'] for m in trial_metrics]
+            mae_values = [m['mae'] for m in trial_metrics]
+            r2_values = [m['r2'] for m in trial_metrics]
+            fit_times = [m['fit_time'] for m in trial_metrics]
+            pred_times = [m['pred_time'] for m in trial_metrics]
+            
+            result = {
+                'problem': problem.name,
+                'noise_level': noise_level,
+                'rmse_mean': np.mean(rmse_values),
+                'rmse_std': np.std(rmse_values),
+                'mae_mean': np.mean(mae_values),
+                'r2_mean': np.mean(r2_values),
+                'r2_std': np.std(r2_values),
+                'diagnostics_correct': all([m['diag_correct'] for m in trial_metrics]),
+                'solver_used': trial_metrics[0]['solver'],
+                'fit_time_mean': np.mean(fit_times),
+                'predict_time_mean': np.mean(pred_times),
+                'n_trials': n_trials
+            }
+            results.append(result)
+    
+    return pd.DataFrame(results)
